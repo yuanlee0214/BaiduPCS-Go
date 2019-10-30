@@ -10,9 +10,9 @@ import (
 	"github.com/iikira/BaiduPCS-Go/pcsutil"
 	"github.com/iikira/BaiduPCS-Go/pcsutil/checkaccess"
 	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/jsonhelper"
 	"github.com/iikira/BaiduPCS-Go/requester/downloader"
 	"github.com/iikira/BaiduPCS-Go/requester/rio"
-	"github.com/json-iterator/go"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -50,8 +50,7 @@ func CheckUpdate(version string, yes bool) {
 	}
 
 	releaseInfo := ReleaseInfo{}
-	d := jsoniter.NewDecoder(resp.Body)
-	err = d.Decode(&releaseInfo)
+	err = jsonhelper.UnmarshalData(resp.Body, &releaseInfo)
 	if err != nil {
 		fmt.Printf("json数据解析失败: %s\n", err)
 		return
@@ -83,25 +82,29 @@ func CheckUpdate(version string, yes bool) {
 
 	builder := &strings.Builder{}
 	builder.WriteString("BaiduPCS-Go-" + releaseInfo.TagName + "-" + runtime.GOOS + "-.*?")
-	switch runtime.GOARCH {
-	case "amd64":
-		builder.WriteString("(amd64|x86_64|x64)")
-	case "386":
-		builder.WriteString("(386|x86)")
-	case "arm":
-		builder.WriteString("(armv5|armv7|arm)")
-	case "arm64":
-		builder.WriteString("arm64")
-	case "mips":
-		builder.WriteString("mips")
-	case "mips64":
-		builder.WriteString("mips64")
-	case "mipsle":
-		builder.WriteString("(mipsle|mipsel)")
-	case "mips64le":
-		builder.WriteString("(mips64le|mips64el)")
-	default:
-		builder.WriteString(runtime.GOARCH)
+	if runtime.GOOS == "darwin" && (runtime.GOARCH == "arm" || runtime.GOARCH == "arm64") {
+		builder.WriteString("arm")
+	} else {
+		switch runtime.GOARCH {
+		case "amd64":
+			builder.WriteString("(amd64|x86_64|x64)")
+		case "386":
+			builder.WriteString("(386|x86)")
+		case "arm":
+			builder.WriteString("(armv5|armv7|arm)")
+		case "arm64":
+			builder.WriteString("arm64")
+		case "mips":
+			builder.WriteString("mips")
+		case "mips64":
+			builder.WriteString("mips64")
+		case "mipsle":
+			builder.WriteString("(mipsle|mipsel)")
+		case "mips64le":
+			builder.WriteString("(mips64le|mips64el)")
+		default:
+			builder.WriteString(runtime.GOARCH)
+		}
 	}
 	builder.WriteString("\\.zip")
 

@@ -8,7 +8,6 @@ import (
 	"github.com/iikira/BaiduPCS-Go/internal/pcsconfig"
 	_ "github.com/iikira/BaiduPCS-Go/internal/pcsinit"
 	"github.com/iikira/BaiduPCS-Go/internal/pcsupdate"
-	"github.com/iikira/BaiduPCS-Go/internal/pcsweb"
 	"github.com/iikira/BaiduPCS-Go/pcsliner"
 	"github.com/iikira/BaiduPCS-Go/pcsliner/args"
 	"github.com/iikira/BaiduPCS-Go/pcstable"
@@ -34,9 +33,28 @@ import (
 	"unicode"
 )
 
+const (
+	// NameShortDisplayNum 文件名缩略显示长度
+	NameShortDisplayNum = 16
+
+	cryptoDescription = `
+	可用的方法 <method>:
+		aes-128-ctr, aes-192-ctr, aes-256-ctr,
+		aes-128-cfb, aes-192-cfb, aes-256-cfb,
+		aes-128-ofb, aes-192-ofb, aes-256-ofb.
+
+	密钥 <key>:
+		aes-128 对应key长度为16, aes-192 对应key长度为24, aes-256 对应key长度为32,
+		如果key长度不符合, 则自动修剪key, 舍弃超出长度的部分, 长度不足的部分用'\0'填充.
+
+	GZIP <disable-gzip>:
+		在文件加密之前, 启用GZIP压缩文件; 文件解密之后启用GZIP解压缩文件, 默认启用,
+		如果不启用, 则无法检测文件是否解密成功, 解密文件时会保留源文件, 避免解密失败造成文件数据丢失.`
+)
+
 var (
 	// Version 版本号
-	Version = "v3.5.6-devel"
+	Version = "v3.6-devel"
 
 	historyFilePath = filepath.Join(pcsconfig.GetConfigDir(), "pcs_command_history.txt")
 	reloadFn        = func(c *cli.Context) error {
@@ -53,20 +71,6 @@ var (
 		}
 		return nil
 	}
-
-	cryptoDescription = `
-	可用的方法 <method>:
-		aes-128-ctr, aes-192-ctr, aes-256-ctr,
-		aes-128-cfb, aes-192-cfb, aes-256-cfb,
-		aes-128-ofb, aes-192-ofb, aes-256-ofb.
-
-	密钥 <key>:
-		aes-128 对应key长度为16, aes-192 对应key长度为24, aes-256 对应key长度为32,
-		如果key长度不符合, 则自动修剪key, 舍弃超出长度的部分, 长度不足的部分用'\0'填充.
-
-	GZIP <disable-gzip>:
-		在文件加密之前, 启用GZIP压缩文件; 文件解密之后启用GZIP解压缩文件, 默认启用,
-		如果不启用, 则无法检测文件是否解密成功, 解密文件时会保留源文件, 避免解密失败造成文件数据丢失.`
 
 	isCli bool
 )
@@ -95,7 +99,7 @@ func main() {
 	app.Name = "BaiduPCS-Go"
 	app.Version = Version
 	app.Author = "iikira/BaiduPCS-Go: https://github.com/iikira/BaiduPCS-Go"
-	app.Copyright = "(c) 2016-2018 iikira."
+	app.Copyright = "(c) 2016-2019 iikira."
 	app.Usage = "百度网盘客户端 for " + runtime.GOOS + "/" + runtime.GOARCH
 	app.Description = `BaiduPCS-Go 使用Go语言编写的百度网盘命令行客户端, 为操作百度网盘, 提供实用功能.
 	具体功能, 参见 COMMANDS 列表
@@ -186,9 +190,16 @@ func main() {
 			}
 
 			var (
-				activeUser = pcsconfig.Config.ActiveUser()
-				pcs        = pcsconfig.Config.ActiveUserBaiduPCS()
-				runeFunc   = unicode.IsSpace
+				activeUser  = pcsconfig.Config.ActiveUser()
+				pcs         = pcsconfig.Config.ActiveUserBaiduPCS()
+				runeFunc    = unicode.IsSpace
+				pcsRuneFunc = func(r rune) bool {
+					switch r {
+					case '\'', '"':
+						return true
+					}
+					return unicode.IsSpace(r)
+				}
 				targetPath string
 			)
 
@@ -242,18 +253,18 @@ func main() {
 				if !closed {
 					if !strings.HasPrefix(file.Path, path.Clean(path.Join(targetDir, path.Base(targetPath)))) {
 						if path.Base(targetDir) == path.Base(targetPath) {
-							appendLine = strings.Join(append(lineArgs[:numArgs-1], escaper.EscapeByRuneFunc(path.Join(targetPath, file.Filename), runeFunc)), " ")
+							appendLine = strings.Join(append(lineArgs[:numArgs-1], escaper.EscapeByRuneFunc(path.Join(targetPath, file.Filename), pcsRuneFunc)), " ")
 							goto handle
 						}
 						// fmt.Println(file.Path, targetDir, targetPath)
 						continue
 					}
 					// fmt.Println(path.Clean(path.Join(path.Dir(targetPath), file.Filename)), targetPath, file.Filename)
-					appendLine = strings.Join(append(lineArgs[:numArgs-1], escaper.EscapeByRuneFunc(path.Clean(path.Join(path.Dir(targetPath), file.Filename)), runeFunc)), " ")
+					appendLine = strings.Join(append(lineArgs[:numArgs-1], escaper.EscapeByRuneFunc(path.Clean(path.Join(path.Dir(targetPath), file.Filename)), pcsRuneFunc)), " ")
 					goto handle
 				}
 				// 没有的情况
-				appendLine = strings.Join(append(lineArgs, escaper.EscapeByRuneFunc(file.Filename, runeFunc)), " ")
+				appendLine = strings.Join(append(lineArgs, escaper.EscapeByRuneFunc(file.Filename, pcsRuneFunc)), " ")
 				goto handle
 
 			handle:
@@ -281,7 +292,7 @@ func main() {
 			if activeUser.Name != "" {
 				// 格式: BaiduPCS-Go:<工作目录> <百度ID>$
 				// 工作目录太长时, 会自动缩略
-				prompt = app.Name + ":" + converter.ShortDisplay(path.Base(activeUser.Workdir), 16) + " " + activeUser.Name + "$ "
+				prompt = app.Name + ":" + converter.ShortDisplay(path.Base(activeUser.Workdir), NameShortDisplayNum) + " " + activeUser.Name + "$ "
 			} else {
 				// BaiduPCS-Go >
 				prompt = app.Name + " > "
@@ -317,24 +328,6 @@ func main() {
 	}
 
 	app.Commands = []cli.Command{
-		{
-			Name:     "web",
-			Usage:    "启用 web 客户端 (测试中)",
-			Category: "其他",
-			Before:   reloadFn,
-			Action: func(c *cli.Context) error {
-				fmt.Printf("web 客户端功能为实验性功能, 测试中, 打开 http://localhost:%d 查看效果\n", c.Uint("port"))
-				fmt.Println(pcsweb.StartServer(c.Uint("port")))
-				return nil
-			},
-			Flags: []cli.Flag{
-				cli.UintFlag{
-					Name:  "port",
-					Usage: "自定义端口",
-					Value: 8080,
-				},
-			},
-		},
 		{
 			Name:     "run",
 			Usage:    "执行系统命令",
@@ -1201,13 +1194,13 @@ func main() {
 			Name:      "locate",
 			Aliases:   []string{"lt"},
 			Usage:     "获取下载直链",
-			UsageText: fmt.Sprintf("%s locate <文件1> <文件2> ...", app.Name),
-			Description: `
+			UsageText: app.Name + " locate <文件1> <文件2> ...",
+			Description: fmt.Sprintf(`
 	获取下载直链
 
-	若该功能无法正常使用, 提示"user is not authorized, hitcode:101", 尝试更换 User-Agent 为 netdisk;8.3.1;andorid-android:
-	BaiduPCS-Go config set -user_agent "netdisk;8.3.1;andorid-android"
-`,
+	若该功能无法正常使用, 提示"user is not authorized, hitcode:xxx", 尝试更换 User-Agent 为 %s:
+	BaiduPCS-Go config set -user_agent "%s"
+`, baidupcs.NetdiskUA, baidupcs.NetdiskUA),
 			Category: "百度网盘",
 			Before:   reloadFn,
 			Action: func(c *cli.Context) error {
@@ -1234,7 +1227,7 @@ func main() {
 			Name:      "rapidupload",
 			Aliases:   []string{"ru"},
 			Usage:     "手动秒传文件",
-			UsageText: fmt.Sprintf("%s rapidupload -length=<文件的大小> -md5=<文件的md5值> -slicemd5=<文件前256KB切片的md5值(可选)> -crc32=<文件的crc32值(可选)> <保存的网盘路径, 需包含文件名>", app.Name),
+			UsageText: app.Name + " rapidupload -length=<文件的大小> -md5=<文件的md5值> -slicemd5=<文件前256KB切片的md5值(可选)> -crc32=<文件的crc32值(可选)> <保存的网盘路径, 需包含文件名>",
 			Description: `
 	使用此功能秒传文件, 前提是知道文件的大小, md5, 前256KB切片的 md5 (可选), crc32 (可选), 且百度网盘中存在一模一样的文件.
 	上传的文件将会保存到网盘的目标目录.
@@ -1281,7 +1274,7 @@ func main() {
 			Name:      "createsuperfile",
 			Aliases:   []string{"csf"},
 			Usage:     "手动分片上传—合并分片文件",
-			UsageText: fmt.Sprintf("%s createsuperfile -path=<保存的网盘路径, 需包含文件名> block1 block2 ... ", app.Name),
+			UsageText: app.Name + " createsuperfile -path=<保存的网盘路径, 需包含文件名> block1 block2 ... ",
 			Description: `
 	block1, block2 ... 为文件分片的md5值
 	上传的文件将会保存到网盘的目标目录.
@@ -1902,7 +1895,7 @@ func main() {
 					Name:  "getip",
 					Usage: "获取IP地址",
 					Action: func(c *cli.Context) error {
-						fmt.Printf("内部IP地址: \n")
+						fmt.Printf("内网IP地址: \n")
 						for _, address := range pcsutil.ListAddresses() {
 							fmt.Printf("%s\n", address)
 						}
@@ -1910,11 +1903,11 @@ func main() {
 
 						ipAddr, err := getip.IPInfoByClient(pcsconfig.Config.HTTPClient())
 						if err != nil {
-							fmt.Printf("获取外部IP错误: %s\n", err)
+							fmt.Printf("获取公网IP错误: %s\n", err)
 							return nil
 						}
 
-						fmt.Printf("外部IP地址: %s\n", ipAddr)
+						fmt.Printf("公网IP地址: %s\n", ipAddr)
 						return nil
 					},
 				},
@@ -2029,5 +2022,3 @@ func main() {
 
 	app.Run(os.Args)
 }
-
-// �

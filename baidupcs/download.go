@@ -3,6 +3,7 @@ package baidupcs
 import (
 	"errors"
 	"github.com/iikira/BaiduPCS-Go/baidupcs/pcserror"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
 	"net/http"
 	"net/url"
 )
@@ -10,6 +11,8 @@ import (
 var (
 	// ErrLocateDownloadURLNotFound 未找到下载链接
 	ErrLocateDownloadURLNotFound = errors.New("locatedownload url not found")
+	// MaxDownloadRangeSize 文件片段最大值
+	MaxDownloadRangeSize = 55*converter.MB - 1
 )
 
 type (
@@ -159,6 +162,8 @@ func (pcs *BaiduPCS) LocatePanAPIDownload(fidList ...int64) (dlinkInfoList APIDo
 		if pcsError.GetErrType() == pcserror.ErrTypeRemoteError {
 			switch pcsError.GetRemoteErrCode() {
 			case 112: // 页面已过期
+				fallthrough
+			case 113: // 签名错误
 				pcs.ph.SetSignExpires() // 重置
 			}
 		}

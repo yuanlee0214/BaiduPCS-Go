@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/iikira/BaiduPCS-Go/baidupcs"
 	"github.com/iikira/BaiduPCS-Go/pcstable"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
 	"github.com/iikira/baidu-tools/tieba"
 	"github.com/olekukonko/tablewriter"
 	"path"
@@ -44,6 +45,7 @@ func (baidu *Baidu) BaiduPCS() *baidupcs.BaiduPCS {
 	pcs := baidupcs.NewPCS(Config.appID, baidu.BDUSS)
 	pcs.SetHTTPS(Config.enableHTTPS)
 	pcs.SetUserAgent(Config.userAgent)
+	pcs.SetUID(baidu.UID)
 	return pcs
 }
 
@@ -53,7 +55,7 @@ func (baidu *Baidu) GetSavePath(path string) string {
 	dirStr := fmt.Sprintf("%s/%d_%s%s/.",
 		Config.saveDir,
 		baidu.UID,
-		baidu.Name,
+		converter.TrimPathInvalidChars(baidu.Name),
 		path,
 	)
 

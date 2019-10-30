@@ -3,11 +3,11 @@
 name="BaiduPCS-Go"
 version=$1
 
-GOROOT=/usr/local/go1.10.4
+GOROOT=/usr/local/go1.10.8
 go=$GOROOT/bin/go
 
 if [ "$1" = "" ];then
-    version=v3.5.6
+    version=v3.6
 fi
 
 output="out/"
@@ -21,7 +21,8 @@ Build() {
     echo "Building $1..."
     export GOOS=$2 GOARCH=$3 GO386=sse2 CGO_ENABLED=0 GOARM=$4
     if [ $2 = "windows" ];then
-        goversioninfo -icon=assets/$name.ico -manifest="$name".exe.manifest -product-name="$name" -file-version="$version" -product-version="$version" -company=iikira -copyright="© 2016-2018 iikira." -o=resource_windows.syso
+        goversioninfo -o=resource_windows_386.syso
+        goversioninfo -64 -o=resource_windows_amd64.syso
         $go build -ldflags "-X main.Version=$version -s -w" -o "$output/$1/$name.exe"
         RicePack $1 $name.exe
     else
@@ -38,16 +39,34 @@ ArmBuild() {
     $go build -ldflags "-X main.Version=$version -s -w -linkmode=external -extldflags=-pie" -o "$output/$1/$name"
     if [ $2 = "darwin" ] && [ $3 = "arm" -o $3 = "arm64" ];then
         # cp Info.plist "$output/$1"
-        ldid -S "$output/$1/$name"
+        cd "$output/$1"
+        jtool --sign --inplace --ent ../../entitlements.xml "$name"
+        cd ../..
     fi
 
     RicePack $1 $name
     Pack $1
 }
 
+IOSBuild() {
+    echo "Building $1..."
+    mkdir -p "$output/$1"
+    cd "$output/$1"
+    export CC=/usr/local/go/misc/ios/clangwrap.sh GOOS=darwin GOARCH=arm GOARM=7 CGO_ENABLED=1
+    $go build -ldflags "-X main.Version=$version -s -w" -o "armv7" github.com/iikira/BaiduPCS-Go
+    jtool --sign --inplace --ent ../../entitlements.xml "armv7"
+    export GOARCH=arm64
+    $go build -ldflags "-X main.Version=$version -s -w" -o "arm64" github.com/iikira/BaiduPCS-Go
+    jtool --sign --inplace --ent ../../entitlements.xml "arm64"
+    lipo -create "armv7" "arm64" -output $name # merge
+    rm "armv7" "arm64"
+    cd ../..
+    RicePack $1 $name
+    Pack $1
+}
+
 # zip 打包
 Pack() {
-    mkdir "$output/$1/download"
     cp README.md "$output/$1"
 
     cd $output
@@ -61,8 +80,11 @@ Pack() {
 
 # rice 打包静态资源
 RicePack() {
+    return # 已取消web功能
     rice -i github.com/iikira/BaiduPCS-Go/internal/pcsweb append --exec "$output/$1/$2"
 }
+
+touch ./vendor/golang.org/x/sys/windows/windows.s
 
 # Android
 export NDK_INSTALL=$ANDROID_NDK_ROOT/bin
@@ -74,8 +96,9 @@ CC=$NDK_INSTALL/i686-linux-android-4.9/bin/i686-linux-android-gcc ArmBuild $name
 CC=$NDK_INSTALL/x86_64-linux-android-4.9/bin/x86_64-linux-android-gcc ArmBuild $name-$version"-android-21-amd64" android amd64 7
 
 # iOS
-CC=/usr/local/go/misc/ios/clangwrap.sh ArmBuild $name-$version"-darwin-ios-5.0-armv7" darwin arm 7
-CC=/usr/local/go/misc/ios/clangwrap.sh ArmBuild $name-$version"-darwin-ios-5.0-arm64" darwin arm64 7
+# CC=/usr/local/go/misc/ios/clangwrap.sh ArmBuild $name-$version"-darwin-ios-5.0-armv7" darwin arm 7
+# CC=/usr/local/go/misc/ios/clangwrap.sh ArmBuild $name-$version"-darwin-ios-5.0-arm64" darwin arm64 7
+IOSBuild $name-$version"-darwin-ios-arm"
 
 # OS X / macOS
 Build $name-$version"-darwin-osx-amd64" darwin amd64
